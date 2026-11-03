@@ -257,6 +257,22 @@ func (e *Engine) RemoveRepository(ctx context.Context, repo string) error {
 	if !exists {
 		return ErrNotFound
 	}
+	// The pinned filesystem layout also contains unpublished repositories which
+	// the manifest-based enumerator cannot see. Refuse recursive removal when
+	// any child is not one of this repository's own metadata directories.
+	// Repository names cannot contain components beginning with an underscore.
+	root := "/docker/registry/v2/repositories/" + repo
+	children, err := e.Driver.List(ctx, root)
+	if err != nil {
+		return normalize(err)
+	}
+	for _, child := range children {
+		switch strings.TrimPrefix(child, root+"/") {
+		case "_manifests", "_layers", "_uploads":
+		default:
+			return fmt.Errorf("%w: remove nested repository data first", ErrConflict)
+		}
+	}
 	n, _ := reference.WithName(repo)
 	remover, ok := e.Namespace.(distribution.RepositoryRemover)
 	if !ok {

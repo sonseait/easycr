@@ -116,9 +116,18 @@ The parent ran the final native code with normal host permissions:
 - `EASYCR_E2E=1 go test ./tests/e2e -run '^TestDockerWorkflow$' -v -count=1`: exit 1 at Docker login; Docker Desktop daemon timed out requesting `https://localhost:<port>/v2/`. Host HTTP service was reachable independently. No successful Docker push/pull is claimed.
 - `docker compose build` and the opt-in `TestContainerDeployment` reached the Docker daemon but failed during `go mod download`: container DNS could not resolve `proxy.golang.org` using `8.8.8.8:53`. Container probe also failed to resolve `host.docker.internal`. The parent did not change global Docker networking/proxy settings.
 
-These observations supersede sandbox-only claims that host TCP/browser or Docker daemon access are unavailable. The remaining blockers are Docker networking/DNS and full authenticated browser acceptance.
+These observations supersede sandbox-only claims that host TCP/browser or Docker daemon access are unavailable. The remaining blockers are Docker networking/DNS and full authenticated browser acceptance. The parent also successfully committed the implementation in the original repository as `1d3cfd2`; the alternate Git bundle is only an older sandbox recovery artifact and is not the authoritative final revision.
 
 Review note: an in-flight login/reset race reported against the auth service is not reachable through the shipped CLI: reset is offline and requires the same exclusive metadata lock held for the entire server lifetime. Do not expose reset as an online endpoint without transactional credential-generation checking.
+
+## Final hardening and browser follow-up
+
+- Added a failing regression reproducing parent repository deletion destroying an unpublished nested upload. The adapter now inspects the pinned filesystem driver's child entries and rejects removal when nested data exists; the regression passes and the unfinished upload remains resumable. This check deliberately depends on Distribution v3.1.2 layout and must be revisited on engine upgrades.
+- Persisted the registry HTTP signing secret; upload-resume-after-restart regression passes.
+- Bounded registry requests to one hour, verified a stalled request releases the mutation lock. This is a maximum request duration, not idle-progress timeout; global serialization remains a throughput limitation documented in README.
+- Re-ran `go test -race ./... -count=1`, `go vet ./...`, native build, and `git diff --check`: exit 0 after these fixes.
+- Authenticated browser smoke using a private disposable test session passed Images empty state, Tokens navigation, global read-token creation, masked one-time secret input, safe literal rendering of an HTML-like token name, native revoke confirmation and list refresh, and sign out returning to the password form. No credentials were printed. Browser password entry itself, image mutation journeys, visual baselines, and accessibility remain unverified.
+- Repeated real Docker workflow still fails at daemon login to host loopback with timeout. No successful Docker push/pull is claimed.
 
 ## Remaining acceptance work
 

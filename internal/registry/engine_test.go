@@ -7,11 +7,16 @@ import (
 	"easycr/internal/state"
 	"easycr/internal/testutil"
 	"encoding/json"
+	"fmt"
 	digest "github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	"io"
+	"net"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 )
 
 func fixture(t *testing.T) (*Engine, auth.Service) {
@@ -33,6 +38,115 @@ func fixture(t *testing.T) (*Engine, auth.Service) {
 	}
 	return e, svc
 }
+func TestUploadURLSurvivesEngineRestart(t *testing.T) {
+	stateDir, storageDir := t.TempDir(), t.TempDir()
+	s, err := state.Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.EnsureBootstrap(s, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	svc := auth.Service{Store: s}
+	_, token, err := svc.CreateToken("push", []auth.Grant{{Repository: "team/app", Permission: "write"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := NewEngine(context.Background(), storageDir, svc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := testutil.Request(t, e, "POST", "/v2/team/app/blobs/uploads/", token, nil, nil)
+	if w.Code != 202 {
+		t.Fatalf("start upload: %d %s", w.Code, w.Body.String())
+	}
+	location := w.Header().Get("Location")
+	if err := e.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = state.Open(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	e, err = NewEngine(context.Background(), storageDir, auth.Service{Store: s})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	w = testutil.Request(t, e, "PATCH", location, token, []byte("resumed"), map[string]string{"Content-Type": "application/octet-stream"})
+	if w.Code != 202 {
+		t.Fatalf("resume after restart: %d %s", w.Code, w.Body.String())
+	}
+}
+
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	read, write time.Time
+}
+
+func (w *deadlineRecorder) SetReadDeadline(t time.Time) error {
+	if !t.IsZero() {
+		w.read = t
+	}
+	return nil
+}
+func (w *deadlineRecorder) SetWriteDeadline(t time.Time) error {
+	if !t.IsZero() {
+		w.write = t
+	}
+	return nil
+}
+
+func TestEngineBoundsStreamDuration(t *testing.T) {
+	w := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	e := &Engine{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})}
+	start := time.Now()
+	e.ServeHTTP(w, httptest.NewRequest("PUT", "/v2/a/blobs/uploads/", nil))
+	if w.read.IsZero() || w.write.IsZero() || !w.read.After(start) || !w.write.After(start) {
+		t.Fatalf("stream deadlines not set: read=%v write=%v", w.read, w.write)
+	}
+	if w.read.Sub(start) > time.Hour+time.Second || w.write.Sub(start) > time.Hour+time.Second {
+		t.Fatalf("stream deadlines are not bounded: read=%v write=%v", w.read, w.write)
+	}
+}
+
+func TestStalledUploadReleasesMutationLock(t *testing.T) {
+	started := make(chan struct{})
+	e := &Engine{streamTimeout: 100 * time.Millisecond, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" {
+			close(started)
+			_, _ = io.Copy(io.Discard, r.Body)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})}
+	s := httptest.NewServer(e)
+	defer s.Close()
+	c, err := net.Dial("tcp", s.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	fmt.Fprint(c, "PUT /v2/a HTTP/1.1\r\nHost: example.com\r\nContent-Length: 100\r\n\r\nx")
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("upload did not start")
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	response, err := client.Post(s.URL+"/v2/b", "text/plain", nil)
+	if err != nil {
+		t.Fatalf("other request remained blocked: %v", err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("status %d", response.StatusCode)
+	}
+}
+
 func TestEngineV2(t *testing.T) {
 	e, s := fixture(t)
 	for _, credential := range []bool{false, true} {

@@ -114,6 +114,42 @@ func TestRemoveRepository(t *testing.T) {
 	}
 }
 
+func TestRemoveParentPreservesUnpublishedNestedUpload(t *testing.T) {
+	e, _ := fixture(t)
+	ctx := context.Background()
+	image(t, e, "team/app", "v1", "amd64", []byte("parent"))
+	named, err := reference.WithName("team/app/child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, err := e.Namespace.Repository(ctx, named)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upload, err := repo.Blobs(ctx).Create(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := upload.ID()
+	if _, err = upload.Write([]byte("unfinished child layer")); err != nil {
+		t.Fatal(err)
+	}
+	if err = upload.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = e.RemoveRepository(ctx, "team/app"); err == nil {
+		t.Fatal("parent deletion must refuse an unpublished nested upload")
+	}
+	resumed, err := repo.Blobs(ctx).Resume(ctx, id)
+	if err != nil {
+		t.Fatalf("nested upload was lost: %v", err)
+	}
+	defer resumed.Close()
+	if resumed.Size() == 0 {
+		t.Fatal("nested upload content lost")
+	}
+}
+
 func TestTaglessRepositoryAndPlatformMetadata(t *testing.T) {
 	e, _ := fixture(t)
 	ctx := context.Background()

@@ -4,6 +4,13 @@ A private, single-admin OCI / Docker registry in one Go binary, with an embedded
 Images and Tokens UI, local filesystem storage, and offline garbage collection.
 No Node build, external database, or separate registry process is required.
 
+Registry HTTP requests currently have a one-hour maximum duration, including
+lock wait time; split larger uploads into resumable chunks. Image mutations are
+serialized globally, so a slow transfer can delay other repositories until it
+completes or reaches that limit. Upload signing state is persisted so resumable
+upload URLs remain valid after restart. This is not per-repository concurrency
+isolation or an idle-progress timeout.
+
 ## Run locally
 
 Requires Go 1.26+ (tested toolchain: 1.26.5).
