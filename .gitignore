@@ -2,3 +2,6 @@
 /bin/
 .env
 .hermes/
+*.local.env
+/e2e-artifacts/
+/easycr-implementation.bundle

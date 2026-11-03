@@ -1,0 +1,46 @@
+:root { color-scheme: light; font-family: system-ui, -apple-system, sans-serif; color: #172534; background: #f7f8fa; line-height: 1.5; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+header { display: flex; align-items: center; gap: 1.5rem; padding: 1rem 3vw; background: white; border-bottom: 1px solid #d9dfe5; flex-wrap: wrap; }
+.brand { color: #172534; font-size: 1.5rem; font-weight: 750; text-decoration: none; }
+header span, .muted, footer { color: #586879; }
+nav { display: flex; gap: .5rem; margin-left: auto; }
+main { max-width: 1200px; margin: 2rem auto; padding: 0 1.25rem; min-height: 65vh; }
+h1 { font-size: 1.75rem; overflow-wrap: anywhere; }
+h2 { font-size: 1.15rem; margin: .3rem 0; }
+p { max-width: 80ch; }
+button, input, select, textarea { font: inherit; border: 1px solid #aab7c4; border-radius: .3rem; padding: .6rem .8rem; }
+button { cursor: pointer; color: #17364d; background: white; }
+button:hover { background: #edf3f7; }
+button:disabled { opacity: .55; cursor: wait; }
+button.primary, button[aria-pressed="true"] { color: white; background: #145d80; border-color: #145d80; }
+button.danger { color: #9c2525; border-color: #d3a3a3; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid #3196ca; outline-offset: 3px; }
+label { display: block; font-weight: 600; margin: 1rem 0; }
+label input:not([type="checkbox"]), label select, label textarea { display: block; width: 100%; margin-top: .4rem; background: white; color: inherit; }
+input[type="checkbox"] { margin-right: .7rem; }
+form { max-width: 40rem; }
+.login { margin: 3rem auto; max-width: 30rem; background: white; padding: 1.5rem 2rem; border: 1px solid #d9dfe5; border-radius: .5rem; }
+.list { margin: 1.5rem 0; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem; background: white; border-bottom: 1px solid #d9dfe5; overflow-wrap: anywhere; }
+.row p { margin: .3rem 0; }
+#status:not(:empty), .dialog-status:not(:empty) { padding: .8rem 1rem; background: #e8f1f8; border-radius: .3rem; margin-bottom: 1rem; }
+#status.error, .dialog-status.error { color: #8b2222; background: #fce9e9; }
+#status.success, .dialog-status.success { color: #205c3c; background: #e4f4ea; }
+table { width: 100%; border-collapse: collapse; background: white; margin-top: 1.5rem; text-align: left; }
+th, td { padding: 1rem; border-bottom: 1px solid #d9dfe5; vertical-align: top; }
+th { color: #526376; font-size: .85rem; }
+.digest { display: block; max-width: 22rem; overflow-wrap: anywhere; margin-top: .5rem; font-size: .8rem; }
+.actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+.actions button { font-size: .85rem; }
+.table-scroll { overflow-x: auto; }
+dialog { width: min(90vw, 750px); max-height: 85vh; overflow: auto; border: 1px solid #bac5d0; border-radius: .5rem; padding: 1.5rem; color: inherit; }
+dialog::backdrop { background: #15253690; }
+dialog > button { margin-top: 1.5rem; }
+dialog button { margin-right: .5rem; }
+pre { padding: 1rem; background: #f2f4f7; overflow: auto; max-height: 45vh; }
+.command { display: flex; gap: .5rem; margin: 1rem 0; }
+.command input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; font-size: .85rem; }
+footer { padding: 1.5rem; text-align: center; font-size: .85rem; }
+[hidden] { display: none !important; }
+@media (max-width: 650px) { header span { display: none; } nav { margin-left: 0; } .login { padding: 1rem; } .row { flex-wrap: wrap; } main { margin-top: 1rem; } }

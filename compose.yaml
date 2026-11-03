@@ -1,0 +1,17 @@
+services:
+  easycr:
+    build: .
+    image: easycr:local
+    command: ["serve", "--data", "/data", "--listen", "0.0.0.0:5000", "--public-url", "${EASYCR_PUBLIC_URL:-http://localhost:5000}", "--allow-public-http"]
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - easycr_data:/data
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  easycr_data:

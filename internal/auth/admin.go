@@ -29,6 +29,9 @@ func EnsureBootstrap(s *state.Store, out io.Writer) error {
 			}
 			return nil
 		}
+		if string(b.Get([]byte("bootstrap_pending"))) != "1" {
+			return errors.New("invalid bootstrap state: no first-start marker")
+		}
 		random := make([]byte, 24)
 		if _, err := rand.Read(random); err != nil {
 			return err
@@ -43,7 +46,7 @@ func EnsureBootstrap(s *state.Store, out io.Writer) error {
 				return err
 			}
 		}
-		return nil
+		return b.Delete([]byte("bootstrap_pending"))
 	})
 	if err != nil {
 		return err
@@ -52,4 +55,34 @@ func EnsureBootstrap(s *state.Store, out io.Writer) error {
 		_, err = fmt.Fprintf(out, "bootstrap_admin_password password=%s\n", password)
 	}
 	return err
+}
+
+func ResetPassword(s *state.Store, out io.Writer) error {
+	password, e := random(24)
+	if e != nil {
+		return e
+	}
+	hash, e := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if e != nil {
+		return e
+	}
+	e = s.DB.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("settings"))
+		if string(b.Get([]byte("schema_version"))) != "1" || string(b.Get([]byte("bootstrapped"))) != "1" {
+			return errors.New("admin is not bootstrapped or state is invalid")
+		}
+		if e := b.Put([]byte("admin_hash"), hash); e != nil {
+			return e
+		}
+		if e := tx.DeleteBucket([]byte("sessions")); e != nil {
+			return e
+		}
+		_, e := tx.CreateBucket([]byte("sessions"))
+		return e
+	})
+	if e != nil {
+		return e
+	}
+	_, e = fmt.Fprintf(out, "reset_admin_password password=%s\n", password)
+	return e
 }
