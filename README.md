@@ -2,7 +2,8 @@
 
 A private, single-admin OCI / Docker registry in one Go binary, with an embedded
 Images and Tokens UI, local filesystem storage, and offline garbage collection.
-No Node build, external database, or separate registry process is required.
+No Node build, external database, or separate registry process is required to run
+or build the Go binary. The embedded UI uses native HTML controls and plain CSS.
 
 Registry HTTP requests currently have a one-hour maximum duration, including
 lock wait time; split larger uploads into resumable chunks. Image mutations are
@@ -17,12 +18,11 @@ Requires Go 1.26+ (tested toolchain: 1.26.5).
 
 ```sh
 go build -trimpath -o bin/easycr ./cmd/easycr
-./bin/easycr serve --data ./data --listen 127.0.0.1:5000 --public-url http://localhost:5000
+./bin/easycr
 ```
 
-Open <http://localhost:5000>. Use **the exact public URL hostname** in the browser:
-admin mutations require its Origin. `localhost` and `127.0.0.1` are different
-origins. No password or token is supplied as a CLI argument.
+Open <http://localhost:5000>. UI mutations require an Origin matching the request
+Host and a session CSRF token. No password or token is supplied as a CLI argument.
 
 The first `serve` startup creates and commits a bcrypt admin password hash,
 then prints one `bootstrap_admin_password password=...` event to stderr **before
@@ -33,30 +33,107 @@ The UI never returns the admin password. Bootstrap or DB errors prevent listenin
 If binding fails after bootstrap, the password remains persisted: reuse the log
 or explicitly reset it rather than expecting another bootstrap event.
 
-## Docker Compose
+## Configuration
+
+No environment variables, configuration file, or configuration flags are needed.
+Run `./bin/easycr` (or `serve`): it listens on `0.0.0.0:5000` and stores data
+in `./data` relative to the working directory. The Docker image works from `/`,
+so its data directory is `/data`. Change the external port with Docker mapping.
+Optionally set `PORT` to change the application's listening port (default 5000,
+valid range 1–65535): `PORT=8080 ./bin/easycr` or
+`docker run -e PORT=8080 -p 8080:8080 -v easycr_data:/data easycr:local`.
+Use `gc`, `gc-dry-run`, or `admin reset-password` for offline maintenance.
+
+## Make targets
+
+Run `make help` to list commands. Common targets:
 
 ```sh
-docker compose build
-docker compose up -d
-docker compose logs easycr
+make build
+make run
+make verify
+make test-e2e     # requires a working Docker daemon/network
+make docker-build IMAGE=easycr:local
+make docker-push IMAGE=registry.example.com/team/easycr:v1
+make docker-release IMAGE=registry.example.com/team/easycr:v1 # build then push
 ```
 
-The container runs as UID/GID 65532, writes only its named `/data` volume, and
-publishes port 5000 on the host's loopback interface. Named-volume copy-up gives
-it the required ownership. A bind mount must be provisioned with ownership
-65532:65532 and mode 0700 first. Never run two instances on one data directory.
-The image uses a pinned Go 1.26.5 builder and a scratch runtime; it contains the
-binary and no shell. `GET /healthz` returns `{"status":"ok"}` without private data.
-`docker compose down` preserves data; **`down -v` destroys it**.
+`make run` starts the server on port 5000 with local `./data` storage.
+`make clean` removes the default binary, never registry data.
 
-For public use, terminate HTTPS at a reverse proxy, set `EASYCR_PUBLIC_URL` to the
-exact HTTPS origin, and recreate the service. Keep the backend on loopback or a
+## UI development
+
+The UI uses native buttons, selects, checkboxes, form validation, dialogs and
+confirmation prompts. Plain CSS provides minimal layout and follows the system
+light/dark preference. There is no UI framework, CDN, or CSS build step.
+Edit `internal/web/static/index.html`, `app.js`, and `style.css`, then run
+`make build` to embed the assets. Node.js and npm are only needed for optional
+browser regression tests:
+
+```sh
+npm ci
+npx playwright install chromium
+make test-ui       # isolated UI fixtures, desktop and mobile Chromium
+```
+
+The browser tests use explicit mocked API fixtures and do not exercise a live
+registry; `make test` covers the Go API and embedded asset handler.
+
+## Docker image
+
+### GitHub Container Registry
+
+`.github/workflows/publish-image.yml` builds and pushes a multi-platform image
+(`linux/amd64` and `linux/arm64`) to `ghcr.io/<owner>/<repository>` (lowercase).
+It runs on pushes to `main`, tags matching `v*`, or manually from the Actions tab
+on either of those refs. Tags are:
+
+- `latest` for `main` builds only.
+- The exact Git tag for releases, e.g. `v1.0.0`.
+- `sha-<full-commit-sha>` for every build.
+
+The workflow uses the built-in `GITHUB_TOKEN` with `packages: write`; no PAT or
+additional repository secret is required. Repository/organization policy must
+allow Actions to publish packages. New GHCR packages are private by default;
+change package visibility to public if anonymous pulls are wanted. For an
+existing package, grant this repository Actions write access if needed.
+
+```sh
+docker pull ghcr.io/<owner>/<repository>:latest
+```
+
+### Local build
+
+`make docker-build IMAGE=easycr:local` builds locally. To publish, authenticate
+with your destination registry first, then run `make docker-release
+IMAGE=registry.example.com/team/easycr:v1`. This builds before pushing; `make
+docker-push IMAGE=...` pushes an already-built image without rebuilding.
+
+```sh
+docker run -d --name easycr -p 127.0.0.1:5000:5000 -v easycr_data:/data easycr:local
+docker logs easycr
+```
+
+The container defaults to UID/GID 65532. Compose `user: "1000:1000"` or
+`docker run --user 1000:1000` overrides that default without rebuilding.
+Provision the mounted `/data` directory with ownership matching the selected
+UID:GID and mode 0700 before starting. A new named volume inherits the image's
+65532:65532 ownership, not a custom runtime user; existing volumes retain their
+ownership. Distroless has no shell or startup chown, so overriding the user alone
+does not fix volume permissions. Never use world-writable permissions as a fix.
+Never run two instances on one data directory. Removing the container
+does not delete the named volume; deleting the volume destroys registry data.
+The image uses a Go 1.26.5 builder and `gcr.io/distroless/static-debian12:nonroot`
+runtime, with a static binary and no shell. `GET /healthz` returns `{"status":"ok"}` without private data.
+
+For public use, terminate HTTPS at a reverse proxy. No public URL configuration
+is needed. Keep the backend on loopback or a
 private Docker network. Forward request bodies without buffering large blobs,
 allow long uploads, and preserve the Host header. EasyCR does not trust
 X-Forwarded-For for login rate limits. The application serves HTTP internally;
-`--allow-public-http` explicitly permits its non-loopback container listener.
-Never publish this plaintext backend directly to the Internet. HTTPS public URLs
-cause the session cookie to use Secure. No SSO, scanning, replication, object
+Never publish this plaintext backend directly to the Internet. A validated HTTPS
+Origin (or direct TLS) causes the session cookie to use Secure; forwarded headers
+are not trusted. The proxy must preserve the original Host and Origin headers. No SSO, scanning, replication, object
 storage, multi-replica operation, automatic retention, or NFS support is included.
 
 ## Push and pull
@@ -113,9 +190,9 @@ make a complete backup first. GC is destructive and does not provide rollback.
 ```sh
 # Stop the binary (Ctrl-C or SIGTERM), then:
 cp -a ./data ./data-backup
-./bin/easycr gc --data ./data --dry-run
-./bin/easycr gc --data ./data
-./bin/easycr serve --data ./data --public-url http://localhost:5000
+./bin/easycr gc-dry-run
+./bin/easycr gc
+./bin/easycr
 ```
 
 GC uses Distribution mark-and-sweep with RemoveUntagged. The test fixture checks
@@ -127,22 +204,22 @@ and are not automatically cleaned by this MVP.
 Reset a lost password offline (prints a new password once to stderr):
 
 ```sh
-./bin/easycr admin reset-password --data ./data
+./bin/easycr admin reset-password
 ```
 
 Reset invalidates every UI session and preserves Docker tokens and images.
 It requires an existing bootstrapped store and does not repair corrupt metadata.
 
-For Compose, stop the service and run maintenance in a one-off container sharing
+Stop the container and run maintenance in a one-off container sharing
 its named volume:
 
 ```sh
-docker compose stop easycr
-docker compose run --rm --no-deps easycr gc --data /data --dry-run
-docker compose run --rm --no-deps easycr gc --data /data
+docker stop easycr
+docker run --rm -v easycr_data:/data easycr:local gc-dry-run
+docker run --rm -v easycr_data:/data easycr:local gc
 # If recovery is needed instead:
-docker compose run --rm --no-deps easycr admin reset-password --data /data
-docker compose up -d
+docker run --rm -v easycr_data:/data easycr:local admin reset-password
+docker start easycr
 ```
 
 Back up the **entire** data directory while stopped: `metadata.db` plus `registry/`.
@@ -185,7 +262,7 @@ go vet ./...
 go test -race ./... -count=1
 go build -trimpath -o bin/easycr ./cmd/easycr
 EASYCR_E2E=1 go test ./tests/e2e -v -count=1
-docker compose build
+make docker-build
 ```
 
 Docker e2e is opt-in. When opted in, a missing/inaccessible daemon is a **failure**,

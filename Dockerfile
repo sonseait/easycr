@@ -7,11 +7,14 @@ COPY internal ./internal
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/easycr ./cmd/easycr \
     && mkdir -p /out/data && chmod 0700 /out/data && chown 65532:65532 /out/data
 
-FROM scratch
+FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/easycr /easycr
 COPY --from=build --chown=65532:65532 /out/data /data
+# Default only: Compose `user: "UID:GID"` or docker run --user overrides this.
+# Provision /data ownership for that UID:GID before starting; no runtime chown.
 USER 65532:65532
 VOLUME ["/data"]
 EXPOSE 5000
 ENTRYPOINT ["/easycr"]
-CMD ["serve", "--data", "/data", "--listen", "0.0.0.0:5000", "--public-url", "http://localhost:5000", "--allow-public-http"]
+WORKDIR /
+CMD ["serve"]

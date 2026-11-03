@@ -5,3 +5,6 @@
 *.local.env
 /e2e-artifacts/
 /easycr-implementation.bundle
+/node_modules/
+/playwright-report/
+/test-results/

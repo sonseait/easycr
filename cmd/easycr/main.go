@@ -8,7 +8,6 @@ import (
 	"easycr/internal/registry"
 	"easycr/internal/state"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -24,7 +23,7 @@ var listen = net.Listen
 
 func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: easycr serve | gc | admin reset-password")
+		args = []string{"serve"}
 	}
 	switch args[0] {
 	case "serve":
@@ -49,7 +48,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			return err
 		}
 		defer engine.Close()
-		h, err := httpapi.New(c, auth.Service{Store: s}, engine)
+		h, err := httpapi.New(auth.Service{Store: s}, engine)
 		if err != nil {
 			return err
 		}
@@ -79,29 +78,21 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 			}
 			return err
 		}
-	case "gc", "admin":
+	case "gc", "gc-dry-run", "admin":
 		reset := args[0] == "admin"
 		rest := args[1:]
 		if reset {
 			if len(rest) == 0 || rest[0] != "reset-password" {
-				return fmt.Errorf("usage: easycr admin reset-password --data DIRECTORY")
+				return fmt.Errorf("usage: easycr admin reset-password")
 			}
 			rest = rest[1:]
 		}
-		f := flag.NewFlagSet(args[0], flag.ContinueOnError)
-		f.SetOutput(out)
-		dir := f.String("data", "./data", "data directory")
-		dry := false
-		if !reset {
-			f.BoolVar(&dry, "dry-run", false, "preview garbage collection without changes")
+		if len(rest) != 0 {
+			return fmt.Errorf("configuration arguments are not supported")
 		}
-		if err := f.Parse(rest); err != nil {
-			return err
-		}
-		if f.NArg() != 0 {
-			return fmt.Errorf("unexpected arguments")
-		}
-		s, err := state.Open(*dir)
+		dir := "./data"
+		dry := args[0] == "gc-dry-run"
+		s, err := state.Open(dir)
 		if err != nil {
 			return err
 		}
@@ -109,13 +100,13 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		if reset {
 			return auth.ResetPassword(s, out)
 		}
-		e, err := registry.OpenStorage(ctx, filepath.Join(*dir, "registry"))
+		e, err := registry.OpenStorage(ctx, filepath.Join(dir, "registry"))
 		if err != nil {
 			return err
 		}
 		return e.GC(ctx, dry)
 	default:
-		return fmt.Errorf("unknown command; use serve, gc, or admin reset-password")
+		return fmt.Errorf("unknown command; use serve, gc, gc-dry-run, or admin reset-password")
 	}
 }
 func main() {

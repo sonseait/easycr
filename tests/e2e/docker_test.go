@@ -64,8 +64,9 @@ type process struct {
 func start(t *testing.T, binary, dir, host string) *process {
 	t.Helper()
 	l := &logs{}
-	c := exec.Command(binary, "serve", "--data", dir, "--listen", host, "--public-url", "http://"+host)
-	c.Dir = t.TempDir()
+	c := exec.Command(binary, "serve")
+
+	c.Dir = filepath.Dir(dir)
 	c.Stdout = l
 	c.Stderr = l
 	if e := c.Start(); e != nil {
@@ -206,7 +207,7 @@ func TestDockerWorkflow(t *testing.T) {
 	dir := t.TempDir()
 	binary := filepath.Join(dir, "easycr")
 	requireCommand(t, root, nil, "", "go", "build", "-o", binary, "./cmd/easycr")
-	l, e := net.Listen("tcp", "127.0.0.1:0")
+	l, e := net.Listen("tcp", "127.0.0.1:5000")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -280,8 +281,8 @@ func TestDockerWorkflow(t *testing.T) {
 		t.Fatal("revoked cached token pulled")
 	}
 	p.stop(t)
-	requireCommand(t, root, nil, "", binary, "gc", "--data", data, "--dry-run")
-	requireCommand(t, root, nil, "", binary, "gc", "--data", data)
+	requireCommand(t, dir, nil, "", binary, "gc-dry-run")
+	requireCommand(t, dir, nil, "", binary, "gc")
 	p = start(t, binary, data, host)
 	healthy(t, base)
 	login(global)
@@ -315,7 +316,7 @@ func TestContainerDeployment(t *testing.T) {
 	l.Close()
 	host := fmt.Sprintf("localhost:%d", port)
 	base := "http://" + host
-	requireCommand(t, root, nil, "", "docker", "run", "-d", "--name", container, "-p", fmt.Sprintf("127.0.0.1:%d:5000", port), "-v", volume+":/data", image, "serve", "--data", "/data", "--listen", "0.0.0.0:5000", "--allow-public-http", "--public-url", base)
+	requireCommand(t, root, nil, "", "docker", "run", "-d", "--name", container, "-p", fmt.Sprintf("127.0.0.1:%d:5000", port), "-v", volume+":/data", image)
 	// Capture the event from logs before sending a single HTTP request.
 	password := ""
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
@@ -342,7 +343,7 @@ func TestContainerDeployment(t *testing.T) {
 	a := admin{t: t, base: base, client: &http.Client{Jar: jar, Timeout: 10 * time.Second}}
 	a.login(password)
 	a.token("*", "read")
-	if _, e = command(t, root, nil, "", "docker", "run", "--rm", "-v", volume+":/data", image, "gc", "--data", "/data", "--dry-run"); e == nil {
+	if _, e = command(t, root, nil, "", "docker", "run", "--rm", "-v", volume+":/data", image, "gc-dry-run"); e == nil {
 		t.Fatal("maintenance ignored running container lock")
 	}
 	requireCommand(t, root, nil, "", "docker", "restart", container)
@@ -357,5 +358,5 @@ func TestContainerDeployment(t *testing.T) {
 		t.Fatal("container restart bootstrapped again")
 	}
 	requireCommand(t, root, nil, "", "docker", "stop", container)
-	requireCommand(t, root, nil, "", "docker", "run", "--rm", "-v", volume+":/data", image, "gc", "--data", "/data", "--dry-run")
+	requireCommand(t, root, nil, "", "docker", "run", "--rm", "-v", volume+":/data", image, "gc-dry-run")
 }

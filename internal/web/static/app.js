@@ -80,11 +80,15 @@
     dialog.setAttribute("aria-label", title);
     dialog.append(heading, el("div", null, { class: "dialog-status", role: "status", "aria-live": "polite" }));
     const body = el("div"); dialog.append(body);
-    dialog.append(button("Close", () => dialog.close()));
-    dialog.addEventListener("close", () => dialog.remove());
+    const close = button("Close", () => dialog.close());
+    dialog.append(close);
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+    }, { once: true });
     document.body.append(dialog); dialog.showModal();
-    return { dialog, body };
+    return { dialog, body, close };
   }
+
   async function copy(value) {
     try { await navigator.clipboard.writeText(value); status("Copied.", "success"); }
     catch (_) { throw new Error("Clipboard is unavailable. Select and copy the displayed text."); }
@@ -101,7 +105,7 @@
     document.querySelectorAll("dialog").forEach(d => d.remove());
     nav.replaceChildren(); app.replaceChildren();
     const panel = el("section", null, { class: "login" });
-    panel.append(el("h1", "Sign in"), el("p", "Use the admin password printed in the server log at the first deployment. The password is generated at startup, before any page is opened."));
+    panel.append(el("h1", "Registry console"), el("p", "Sign in with the admin password from your first deployment log."));
     const form = el("form");
     const password = field(form, "Admin password", "password");
     password.autocomplete = "current-password";
@@ -111,7 +115,7 @@
       password.value = ""; csrf = session.csrfToken;
       status(); navigation(); await images();
     });
-    panel.append(form, el("p", "Lost access? Stop the server and run easycr admin reset-password --data DIRECTORY.", { class: "muted" }));
+    panel.append(form, el("p", "Lost access? Stop the server, then run easycr admin reset-password in the same working directory.", { class: "muted recovery" }));
     app.append(panel); password.focus();
   }
   function navigation() {
@@ -128,7 +132,7 @@
     const data = await api(`/api/repositories?n=50&last=${encodeURIComponent(append ? repoCursor : "")}`);
     repositories = append ? repositories.concat(data.items) : data.items;
     repoCursor = data.next; activeRepository = "";
-    app.replaceChildren(el("h1", "Images"), el("p", "Push an image with Docker to create a repository. Tags point to manifests; they do not duplicate image layers."));
+    app.replaceChildren(el("h1", "Images"), el("p", "Your private image library. Push with Docker to create a repository."));
     const label = el("label", "Filter loaded repositories");
     const filter = el("input", null, { type: "search", placeholder: "team/app" });
     label.append(filter); app.append(label);
@@ -215,7 +219,7 @@
   async function tokensView() {
     current = "tokens"; navigation(); status("Loading tokens…");
     const data = await api("/api/tokens");
-    app.replaceChildren(el("h1", "Tokens"), el("p", "Docker uses username token and a generated token as its password. Write includes read. Tokens cannot delete images or access the admin API."), button("Create token", createToken, "primary"));
+    app.replaceChildren(el("h1", "Tokens"), el("p", "Scoped credentials for Docker. Write includes read; admin access is never granted."), button("Create token", createToken, "primary"));
     if (!data.items.length) app.append(el("p", "No tokens yet. Create one for a repository or the entire registry."));
     const list = el("div", null, { class: "list" });
     for (const token of data.items) {
@@ -230,17 +234,19 @@
     app.append(list); status();
   }
   function createToken() {
-    const { dialog, body } = modal("Create token");
+    const { dialog, body, close } = modal("Create token");
     const form = el("form"); const name = field(form, "Name"); name.maxLength = 200;
     const scopeLabel = el("label", "Scope"); const scope = el("select");
-    scope.append(el("option", "Exact repositories", { value: "scoped" }), el("option", "Entire registry (*)", { value: "global" })); scopeLabel.append(scope); form.append(scopeLabel);
+    scope.append(el("option", "Exact repositories", { value: "scoped" }), el("option", "Entire registry (*)", { value: "global" }));
+    scopeLabel.append(scope); form.append(scopeLabel);
     const grantsLabel = el("label", "One grant per line: repository read|write");
     const grants = el("textarea", null, { rows: "4", placeholder: "team/app write\nteam/library read" }); grants.required = true;
     grantsLabel.append(grants); form.append(grantsLabel);
     const permLabel = el("label", "Global permission"); const permission = el("select");
-    permission.append(el("option", "Read", { value: "read" }), el("option", "Write (includes read)", { value: "write" })); permLabel.append(permission); permLabel.hidden = true; form.append(permLabel);
+    permission.append(el("option", "Read", { value: "read" }), el("option", "Write (includes read)", { value: "write" }));
+    permLabel.append(permission); permLabel.hidden = true; form.append(permLabel);
     scope.addEventListener("change", () => { const global = scope.value === "global"; grantsLabel.hidden = global; grants.required = !global; permLabel.hidden = !global; });
-    submit(form, "Create token", async () => {
+    const create = submit(form, "Create token", async () => {
       let requested;
       if (scope.value === "global") requested = [{ repository: "*", permission: permission.value }];
       else requested = grants.value.trim().split(/\n/).map(line => {
@@ -259,9 +265,11 @@
       oneTime.body.append(button("Copy token", () => copy(secret.value)), button("Show / hide", () => { secret.type = secret.type === "password" ? "text" : "password"; }));
       command(oneTime.body, `printf '%s' "$EASYCR_TOKEN" | docker login ${location.host} -u token --password-stdin`);
       oneTime.body.append(el("p", "Set EASYCR_TOKEN in your shell or secret manager. Do not place the token directly in command arguments."));
-      oneTime.dialog.addEventListener("close", () => { secret.value = ""; result.secret = ""; });
+      oneTime.dialog.addEventListener("close", () => { secret.value = ""; result.secret = ""; }, { once: true });
       status(refreshFailed ? "Token created, but refreshing the list failed. Save this secret, then retry the list." : "Token created. Save the secret before closing.", refreshFailed ? "error" : "success");
     });
+    const actions = el("div", null, { class: "dialog-actions" });
+    actions.append(close, create); form.append(actions);
     body.append(form); name.focus();
   }
   (async () => {

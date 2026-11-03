@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -43,7 +44,11 @@ func (w *eventWriter) Write(b []byte) (int, error) {
 	return w.Buffer.Write(b)
 }
 func TestServeHTTPAndGracefulShutdown(t *testing.T) {
-	dir := t.TempDir()
+	t.Chdir(t.TempDir())
+	dir := "./data"
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	l := &memoryListener{connections: make(chan net.Conn), closed: make(chan struct{})}
 	old := listen
 	defer func() { listen = old }()
@@ -61,7 +66,7 @@ func TestServeHTTPAndGracefulShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- run(ctx, []string{"serve", "--data", dir}, &output) }()
+	go func() { done <- run(ctx, []string{"serve"}, &output) }()
 	select {
 	case <-ready:
 	case e := <-done:

@@ -1,41 +1,33 @@
 package config
 
 import (
-	"flag"
 	"fmt"
-	"net"
-	"net/url"
+	"os"
+	"strconv"
 )
 
 type Config struct {
-	Data, Listen, PublicURL string
-	AllowPublicHTTP         bool
+	Data, Listen string
 }
 
 func Parse(args []string) (Config, error) {
-	var c Config
-	f := flag.NewFlagSet("serve", flag.ContinueOnError)
-	f.StringVar(&c.Data, "data", "./data", "data directory")
-	f.StringVar(&c.Listen, "listen", "127.0.0.1:5000", "listen address")
-	f.StringVar(&c.PublicURL, "public-url", "http://localhost:5000", "public URL")
-	f.BoolVar(&c.AllowPublicHTTP, "allow-public-http", false, "allow non-loopback HTTP listener")
-	if err := f.Parse(args); err != nil {
-		return c, err
+	c := Config{Data: "./data", Listen: "0.0.0.0:5000"}
+	if len(args) != 0 {
+		return c, fmt.Errorf("configuration arguments are not supported")
 	}
-	if f.NArg() != 0 {
-		return c, fmt.Errorf("unexpected arguments")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "5000"
 	}
-	u, err := url.Parse(c.PublicURL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-		return c, fmt.Errorf("invalid public URL")
+	for _, digit := range port {
+		if digit < '0' || digit > '9' {
+			return c, fmt.Errorf("PORT must be an integer between 1 and 65535")
+		}
 	}
-	host, _, err := net.SplitHostPort(c.Listen)
-	if err != nil {
-		return c, fmt.Errorf("invalid listen address: %w", err)
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return c, fmt.Errorf("PORT must be an integer between 1 and 65535")
 	}
-	ip := net.ParseIP(host)
-	if host != "localhost" && (ip == nil || !ip.IsLoopback()) && !c.AllowPublicHTTP {
-		return c, fmt.Errorf("non-loopback HTTP listener requires --allow-public-http")
-	}
+	c.Listen = "0.0.0.0:" + strconv.Itoa(n)
 	return c, nil
 }

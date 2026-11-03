@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"easycr/internal/auth"
-	"easycr/internal/config"
 	"easycr/internal/registry"
 	"easycr/internal/state"
 	"encoding/json"
@@ -44,14 +43,14 @@ func setup(t *testing.T, https bool) (*client, auth.Service) {
 	if https {
 		origin = "https://registry.test"
 	}
-	h, err := New(config.Config{PublicURL: origin}, svc, engine)
+	h, err := New(svc, engine)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return &client{h: h, password: strings.TrimSpace(strings.Split(log.String(), "password=")[1]), origin: origin}, svc
 }
 func (c *client) request(method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
-	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r := httptest.NewRequest(method, c.origin+path, strings.NewReader(body))
 	r.RemoteAddr = "127.0.0.1:1234"
 	if c.cookie != nil {
 		r.AddCookie(c.cookie)
@@ -189,6 +188,29 @@ func TestSecurityHeadersAndRoot(t *testing.T) {
 		t.Fatal("API cached")
 	}
 }
+func TestDynamicHostAndHTTPSProxy(t *testing.T) {
+	c, _ := setup(t, false)
+	c.origin = "http://127.0.0.1:8123"
+	c.login(t)
+	r := httptest.NewRequest("POST", "http://registry.example.com/api/login", strings.NewReader(`{"password":"`+c.password+`"}`))
+	r.Header.Set("Origin", "https://registry.example.com")
+	w := httptest.NewRecorder()
+	c.h.ServeHTTP(w, r)
+	if w.Code != 200 || len(w.Result().Cookies()) != 1 || !w.Result().Cookies()[0].Secure {
+		t.Fatal("HTTPS proxy login must issue Secure cookie", w.Code)
+	}
+	for _, origin := range []string{"https://evil.test", "https://registry.example.com/", "https://user@registry.example.com", "null", ""} {
+		r := httptest.NewRequest("POST", "http://registry.example.com/api/login", strings.NewReader(`{"password":"wrong"}`))
+		r.Header.Set("Origin", origin)
+		r.Header.Set("X-Forwarded-Host", "evil.test")
+		w := httptest.NewRecorder()
+		c.h.ServeHTTP(w, r)
+		if w.Code != 403 {
+			t.Fatal("invalid origin accepted", origin, w.Code)
+		}
+	}
+}
+
 func TestLoginRateLimit(t *testing.T) {
 	c, _ := setup(t, false)
 	for i := 0; i < 6; i++ {

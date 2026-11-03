@@ -3,7 +3,6 @@ package httpapi
 import (
 	"crypto/subtle"
 	"easycr/internal/auth"
-	"easycr/internal/config"
 	"easycr/internal/registry"
 	"easycr/internal/web"
 	"encoding/json"
@@ -24,20 +23,14 @@ const cookieName = "easycr_session"
 type server struct {
 	auth    auth.Service
 	engine  *registry.Engine
-	origin  string
-	secure  bool
 	limiter limiter
 }
 
-func New(c config.Config, s auth.Service, e *registry.Engine) (http.Handler, error) {
-	u, err := url.Parse(c.PublicURL)
-	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-		return nil, fmt.Errorf("invalid public URL")
-	}
+func New(s auth.Service, e *registry.Engine) (http.Handler, error) {
 	if s.Store == nil || e == nil {
 		return nil, fmt.Errorf("storage required")
 	}
-	a := &server{auth: s, engine: e, origin: u.Scheme + "://" + u.Host, secure: u.Scheme == "https"}
+	a := &server{auth: s, engine: e}
 	mux := http.NewServeMux()
 	mux.Handle("/v2/", e)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { reply(w, 200, map[string]string{"status": "ok"}) })
@@ -91,14 +84,16 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 func (a *server) originOK(w http.ResponseWriter, r *http.Request) bool {
-	if r.Header.Get("Origin") != a.origin {
-		failure(w, 403, "invalid_origin", "Origin does not match configured public URL")
+	origin := r.Header.Get("Origin")
+	u, err := url.Parse(origin)
+	if err != nil || u.Host != r.Host || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || origin != u.Scheme+"://"+u.Host || (r.TLS != nil && u.Scheme != "https") {
+		failure(w, 403, "invalid_origin", "Origin does not match request host")
 		return false
 	}
 	return true
 }
-func (a *server) cookie(w http.ResponseWriter, secret string, expires time.Time, maxAge int) {
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: secret, Path: "/", HttpOnly: true, Secure: a.secure, SameSite: http.SameSiteStrictMode, Expires: expires, MaxAge: maxAge})
+func (a *server) cookie(w http.ResponseWriter, r *http.Request, secret string, expires time.Time, maxAge int) {
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: secret, Path: "/", HttpOnly: true, Secure: r.TLS != nil || strings.HasPrefix(r.Header.Get("Origin"), "https://"), SameSite: http.SameSiteStrictMode, Expires: expires, MaxAge: maxAge})
 }
 func (a *server) login(w http.ResponseWriter, r *http.Request) {
 	if !a.originOK(w, r) {
@@ -132,7 +127,7 @@ func (a *server) login(w http.ResponseWriter, r *http.Request) {
 		failure(w, 500, "internal_error", "Unable to create session")
 		return
 	}
-	a.cookie(w, secret, session.Expires, 12*60*60)
+	a.cookie(w, r, secret, session.Expires, 12*60*60)
 	reply(w, 200, map[string]string{"csrfToken": session.CSRF})
 }
 func (a *server) protected() http.Handler {
@@ -152,7 +147,7 @@ func (a *server) protected() http.Handler {
 			failure(w, 500, "internal_error", "Unable to end session")
 			return
 		}
-		a.cookie(w, "", time.Unix(1, 0), -1)
+		a.cookie(w, r, "", time.Unix(1, 0), -1)
 		w.WriteHeader(204)
 	})
 	mux.HandleFunc("GET /api/tokens", a.listTokens)
