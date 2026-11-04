@@ -34,6 +34,9 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 button.primary, button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background-color: light-dark(#edf4fd, #223247); }
 button.danger { color: light-dark(#a13232, #f0a4a4); }
 nav button { font-size: 11px; }
+.back-link { display: block; margin-bottom: 14px; color: var(--accent); background-color: light-dark(#edf4fd, #223247); border-color: light-dark(#c8dbf2, #3a5270); }
+.repository-title { color: var(--accent); border-left: 2px solid light-dark(#8db5df, #527da9); padding-left: 9px; }
+.list .row > div > code { color: var(--accent); }
 input:not([type="checkbox"]), select { min-height: 28px; padding: 4px 7px; }
 select { appearance: none; padding-right: 30px; background-image: url("/chevron-down.svg"); background-repeat: no-repeat; background-position: right 9px center; }
 textarea { padding: 6px 7px; resize: vertical; }

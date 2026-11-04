@@ -170,7 +170,7 @@
     const data = await api(`/api/tags?repository=${encodeURIComponent(repo)}&n=50&last=${encodeURIComponent(append ? tagCursor : "")}`);
     tags = append && activeRepository === repo ? tags.concat(data.items) : data.items;
     tagCursor = data.next; activeRepository = repo;
-    app.replaceChildren(button("← Repositories", () => images()), el("h1", repo));
+    app.replaceChildren(button("← Repositories", () => images(), "back-link"), el("h1", repo, { class: "repository-title" }));
     app.append(statistics(data.repository), el("p", "Size includes stored compressed layers, config and manifests, deduplicated within each image/repository. Pulls count successful manifest GETs, not completed downloads.", { class: "muted" }));
     app.append(button("Delete repository", () => removeRepository(repo), "danger"));
     if (!tags.length) app.append(el("p", "This repository has no tags. Untagged digests may still be readable until offline GC."));
