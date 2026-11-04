@@ -156,18 +156,31 @@
       if (!filtered.length) list.append(el("p", repositories.length ? "No matching repositories on the loaded pages." : "No images yet. Create a write token, then docker login and docker push."));
       for (const repo of filtered) {
         const row = el("div", null, { class: "row" });
-        const info = el("div"); info.append(el("code", repo.name), statistics(repo));
+        const info = el("div");
+        const heading = el("div", null, { class: "repo-heading" });
+        heading.append(el("code", repo.name));
         const badges = el("div", null, { class: "repo-tags", "aria-label": `Tags for ${repo.name}` });
         for (const tag of repo.tags || []) {
           if (!/^sha256[:-]/i.test(tag)) {
             const image = `${location.host}/${repo.name}:${tag}`;
-            const badge = button(tag, () => copy(image), "tag-badge");
+            const badge = button(tag, async () => {
+              try { await navigator.clipboard.writeText(image); }
+              catch (_) { throw new Error("Clipboard is unavailable. Select and copy the image name."); }
+              badge.textContent = "Copied";
+              badge.classList.add("copied");
+              clearTimeout(badge.copyTimer);
+              badge.copyTimer = setTimeout(() => {
+                badge.textContent = tag; badge.classList.remove("copied");
+              }, 1500);
+            }, "tag-badge");
+            badge.setAttribute("aria-label", `Copy ${image}`);
+            badge.setAttribute("aria-live", "polite");
             badge.title = `Copy ${image}`;
             badges.append(badge);
           }
         }
         if (!badges.childElementCount) badges.append(el("span", "No named tags", { class: "muted" }));
-        info.append(badges);
+        heading.append(badges); info.append(heading, statistics(repo));
         row.append(info, button("Open tags", () => repositoryView(repo.name)));
         list.append(row);
       }

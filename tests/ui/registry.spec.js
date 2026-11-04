@@ -43,9 +43,12 @@ test("repository list shows named tags without sha256 references", async ({ page
   const tags = page.getByLabel("Tags for team/app", { exact: true });
   await expect(tags.locator(".tag-badge")).toHaveText(["latest", "v1.0"]);
   await expect(tags).not.toContainText("sha256");
-  await tags.getByRole("button", { name: "latest", exact: true }).click();
+  const badge = tags.getByRole("button", { name: "Copy easycr.test/team/app:latest", exact: true });
+  await badge.click();
   expect(await page.evaluate(() => window.copiedImage)).toBe("easycr.test/team/app:latest");
-  await expect(page.locator("#status")).toHaveText("Copied.");
+  await expect(badge).toHaveText("Copied");
+  await expect(page.locator("#status")).toBeEmpty();
+  await expect(badge).toHaveText("latest", { timeout: 3000 });
   await expect(page.getByLabel("Tags for team/library", { exact: true })).toHaveText("No named tags");
   await page.getByRole("button", { name: "Open tags", exact: true }).first().click();
   await page.getByRole("button", { name: "Copy image", exact: true }).click();
