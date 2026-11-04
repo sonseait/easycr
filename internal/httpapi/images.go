@@ -50,11 +50,21 @@ func (a *server) repositories(w http.ResponseWriter, r *http.Request) {
 		imageError(w, err)
 		return
 	}
-	out := []map[string]string{}
+	out := []registry.RepositoryInfo{}
 	for _, name := range items {
-		out = append(out, map[string]string{"name": name})
+		info, err := a.engine.RepositoryStatistics(r.Context(), name)
+		if err != nil {
+			imageError(w, err)
+			return
+		}
+		out = append(out, info)
 	}
-	reply(w, 200, map[string]any{"items": out, "next": next})
+	summary, err := a.engine.Summary(r.Context())
+	if err != nil {
+		imageError(w, err)
+		return
+	}
+	reply(w, 200, map[string]any{"items": out, "next": next, "summary": summary})
 }
 func (a *server) tags(w http.ResponseWriter, r *http.Request) {
 	repo, ok := repository(w, r)
@@ -70,7 +80,12 @@ func (a *server) tags(w http.ResponseWriter, r *http.Request) {
 		imageError(w, err)
 		return
 	}
-	reply(w, 200, map[string]any{"items": items, "next": next})
+	info, err := a.engine.RepositoryStatistics(r.Context(), repo)
+	if err != nil {
+		imageError(w, err)
+		return
+	}
+	reply(w, 200, map[string]any{"items": items, "next": next, "repository": info})
 }
 func (a *server) manifest(w http.ResponseWriter, r *http.Request) {
 	repo, ok := repository(w, r)

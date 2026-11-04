@@ -164,6 +164,27 @@ registry hostname; loopback examples assume a local development daemon.
 
 ## Image management
 
+The UI shows compressed image sizes, repository sizes, unique tagged image counts,
+last push/pull times, and cumulative manifest pull requests. Sizes deduplicate
+shared blobs within the image/repository (and globally in the registry summary),
+include manifests/configs, and exclude untagged/orphaned data. They are not the
+unpacked image size or reclaimable filesystem space. External layers not stored
+locally are excluded. Image counts deduplicate tagged digests within each repo;
+the global count sums those per-repository counts.
+
+Activity is persisted in metadata.db starting with this version; historical times
+are unknown and shown as a dash. A pull means a successful authenticated manifest
+GET, excluding HEAD, blob downloads and admin inspection. Multi-platform clients
+may fetch both an index and a child manifest, so this is not a count of completed
+Docker pulls. Tags sharing a digest share image activity. Repository/global pull
+totals retain historical requests after tags are removed. UI retagging is not a
+protocol push. Metrics persistence failures are logged rather than failing an
+already completed registry transfer.
+
+Inspect displays ordered layer digests, compressed sizes and media types, plus
+expandable raw manifest JSON. For a multi-platform index, open a child manifest
+to inspect its layers. No layer archive is downloaded or extracted for inspection.
+
 Push creates repositories. There are no empty repositories to create in the UI.
 The UI lists repositories and tags with pagination, digest, media type,
 `manifestBytes`, platforms, and manifest JSON. **manifestBytes is only the manifest

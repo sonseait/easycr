@@ -21,6 +21,10 @@ var ErrConflict = errors.New("conflict")
 var ErrInvalid = errors.New("invalid input")
 
 type ManifestInfo struct {
+	SizeBytes int64 `json:"sizeBytes"`
+	Activity
+	Layers        []v1.Descriptor `json:"layers"`
+	Children      []v1.Descriptor `json:"children"`
 	Name          string          `json:"name"`
 	Digest        string          `json:"digest"`
 	MediaType     string          `json:"mediaType"`
@@ -125,13 +129,24 @@ func (e *Engine) manifest(ctx context.Context, repo, ref string) (ManifestInfo, 
 		return ManifestInfo{}, err
 	}
 	info := ManifestInfo{Name: ref, Digest: d.String(), MediaType: mt, ManifestBytes: len(p), Platforms: []v1.Platform{}, Manifest: json.RawMessage(p)}
+	info.SizeBytes, err = collectSize(ctx, r, d, make(map[digest.Digest]bool), 0)
+	if err != nil {
+		return ManifestInfo{}, err
+	}
+	info.Activity, err = e.activity(repo, d.String())
+	if err != nil {
+		return ManifestInfo{}, err
+	}
 	var index struct {
 		Manifests []v1.Descriptor `json:"manifests"`
 		Config    v1.Descriptor   `json:"config"`
+		Layers    []v1.Descriptor `json:"layers"`
 	}
 	if err = json.Unmarshal(p, &index); err != nil {
 		return ManifestInfo{}, err
 	}
+	info.Layers = index.Layers
+	info.Children = index.Manifests
 	for _, desc := range index.Manifests {
 		if desc.Platform != nil {
 			info.Platforms = append(info.Platforms, *desc.Platform)

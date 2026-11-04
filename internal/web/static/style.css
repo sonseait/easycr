@@ -69,6 +69,9 @@ dialog::backdrop { background: #10182080; }
 dialog h2 { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 dialog form { max-width: none; }
 dialog > button { margin-top: 16px; }
+.inspect-dialog { max-width: 860px; }
+.inspect-dialog td { overflow-wrap: anywhere; }
+.inspect-dialog details { margin-top: 14px; }
 .dialog-actions { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
 pre { max-height: 45vh; overflow: auto; padding: 10px; border: 1px solid var(--border); background: var(--subtle); font-size: 11px; }
 .command { margin: 12px 0; }

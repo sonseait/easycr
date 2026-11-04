@@ -81,6 +81,12 @@ components:
         digest: {type: string}
         mediaType: {type: string}
         manifestBytes: {type: integer, description: 'Manifest JSON bytes; not image or reclaimable size'}
+        sizeBytes: {type: integer, format: int64, description: 'Unique stored compressed blobs and manifests reachable from this image; not reclaimable disk space'}
+        pullCount: {type: integer, description: 'Successful registry manifest GETs since tracking began; excludes HEAD and admin inspection'}
+        lastPulledAt: {type: string, format: date-time, nullable: true}
+        lastPushedAt: {type: string, format: date-time, nullable: true}
+        layers: {type: array, nullable: true, items: {type: object}, description: 'Ordered OCI layer descriptors: digest, size and mediaType'}
+        children: {type: array, nullable: true, items: {type: object}, description: 'Index child descriptors; inspect each digest for platform layers'}
         platforms:
           type: array
           items:

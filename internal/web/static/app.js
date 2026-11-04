@@ -127,12 +127,25 @@
       await api("/api/logout", "POST"); loginView(); status("Signed out.");
     }));
   }
+  function size(value) {
+    if (value === undefined || value === null) return "—";
+    const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
+    return `${unit ? value.toFixed(1) : value} ${units[unit]}`;
+  }
+  function timestamp(value) { return value ? new Date(value).toLocaleString() : "—"; }
+  function statistics(info) {
+    if (!info) return el("p", "Statistics unavailable", { class: "muted" });
+    return el("p", `${info.imageCount} images · ${size(info.sizeBytes)} · ${info.pullCount} pulls · Last push ${timestamp(info.lastPushedAt)} · Last pull ${timestamp(info.lastPulledAt)}`, { class: "muted" });
+  }
   async function images(append = false) {
     current = "images"; navigation(); status("Loading repositories…");
     const data = await api(`/api/repositories?n=50&last=${encodeURIComponent(append ? repoCursor : "")}`);
     repositories = append ? repositories.concat(data.items) : data.items;
     repoCursor = data.next; activeRepository = "";
     app.replaceChildren(el("h1", "Images"), el("p", "Your private image library. Push with Docker to create a repository."));
+    app.append(statistics(data.summary));
     const label = el("label", "Filter loaded repositories");
     const filter = el("input", null, { type: "search", placeholder: "team/app" });
     label.append(filter); app.append(label);
@@ -143,7 +156,8 @@
       if (!filtered.length) list.append(el("p", repositories.length ? "No matching repositories on the loaded pages." : "No images yet. Create a write token, then docker login and docker push."));
       for (const repo of filtered) {
         const row = el("div", null, { class: "row" });
-        row.append(el("code", repo.name), button("Open tags", () => repositoryView(repo.name)));
+        const info = el("div"); info.append(el("code", repo.name), statistics(repo));
+        row.append(info, button("Open tags", () => repositoryView(repo.name)));
         list.append(row);
       }
     }
@@ -157,12 +171,12 @@
     tags = append && activeRepository === repo ? tags.concat(data.items) : data.items;
     tagCursor = data.next; activeRepository = repo;
     app.replaceChildren(button("← Repositories", () => images()), el("h1", repo));
-    app.append(el("p", "manifestBytes is the size of the manifest JSON, not total image size or reclaimable disk space.", { class: "muted" }));
+    app.append(statistics(data.repository), el("p", "Size includes stored compressed layers, config and manifests, deduplicated within each image/repository. Pulls count successful manifest GETs, not completed downloads.", { class: "muted" }));
     app.append(button("Delete repository", () => removeRepository(repo), "danger"));
     if (!tags.length) app.append(el("p", "This repository has no tags. Untagged digests may still be readable until offline GC."));
     const table = el("table");
     const header = el("tr");
-    for (const text of ["Tag / digest", "Manifest bytes", "Platforms", "Actions"]) header.append(el("th", text, { scope: "col" }));
+    for (const text of ["Tag / digest", "Size", "Last push", "Last pull", "Pulls", "Platforms", "Actions"]) header.append(el("th", text, { scope: "col" }));
     const thead = el("thead"); thead.append(header); table.append(thead);
     const tbody = el("tbody");
     for (const tag of tags) {
@@ -175,7 +189,7 @@
           status("Deleting tag…"); await api(`/api/tag?repository=${encodeURIComponent(repo)}&tag=${encodeURIComponent(tag.name)}`, "DELETE");
           await repositoryView(repo); status("Tag deleted. Run offline GC later to reclaim unused data.", "success");
         }, "danger"));
-      row.append(name, el("td", String(tag.manifestBytes)), el("td", tag.platforms.map(p => `${p.os}/${p.architecture}${p.variant ? "/" + p.variant : ""}`).join(", ") || "Single manifest"), actions);
+      row.append(name, el("td", size(tag.sizeBytes)), el("td", timestamp(tag.lastPushedAt)), el("td", timestamp(tag.lastPulledAt)), el("td", String(tag.pullCount ?? 0)), el("td", tag.platforms.map(p => `${p.os}/${p.architecture}${p.variant ? "/" + p.variant : ""}`).join(", ") || "Single manifest"), actions);
       tbody.append(row);
     }
     table.append(tbody); const scroll = el("div", null, { class: "table-scroll" }); scroll.append(table); app.append(scroll);
@@ -185,8 +199,32 @@
   async function inspect(repo, ref) {
     status("Loading manifest…");
     const info = await api(`/api/manifest?repository=${encodeURIComponent(repo)}&reference=${encodeURIComponent(ref)}`);
-    const { body } = modal(`${repo}:${ref}`);
-    body.append(el("p", `${info.mediaType} · ${info.manifestBytes} manifest bytes`), el("pre", JSON.stringify(info.manifest, null, 2)));
+    const { body, dialog } = modal(`${repo}:${ref}`);
+    dialog.classList.add("inspect-dialog");
+    body.append(el("p", `${info.mediaType} · ${size(info.sizeBytes)} · ${info.manifestBytes} manifest bytes`));
+    if (info.children?.length) {
+      body.append(el("h2", "Platforms / child manifests"));
+      for (const child of info.children) {
+        const row = el("div", null, { class: "row" });
+        const platform = child.platform;
+        row.append(el("code", `${platform ? `${platform.os}/${platform.architecture}${platform.variant ? "/" + platform.variant : ""}` : "Manifest"} · ${child.digest}`),
+          button("Inspect layers", () => inspect(repo, child.digest)));
+        body.append(row);
+      }
+    }
+    body.append(el("h2", "Layers"));
+    if (info.layers?.length) {
+      const table = el("table"); const head = el("tr");
+      for (const title of ["#", "Digest", "Size", "Media type"]) head.append(el("th", title, { scope: "col" }));
+      const thead = el("thead"); thead.append(head); table.append(thead);
+      const tbody = el("tbody");
+      info.layers.forEach((layer, index) => {
+        const row = el("tr"); const digest = el("td"); digest.append(el("code", layer.digest, { class: "digest" }));
+        row.append(el("td", String(index + 1)), digest, el("td", size(layer.size)), el("td", layer.mediaType)); tbody.append(row);
+      });
+      table.append(tbody); const scroll = el("div", null, { class: "table-scroll" }); scroll.append(table); body.append(scroll);
+    } else body.append(el("p", info.children?.length ? "Select a child manifest to inspect its layers." : "This manifest has no layers.", { class: "muted" }));
+    const raw = el("details"); raw.append(el("summary", "Raw manifest JSON"), el("pre", JSON.stringify(info.manifest, null, 2))); body.append(raw);
     command(body, `docker pull ${location.host}/${repo}@${info.digest}`); status();
   }
   function retag(repo, digest) {

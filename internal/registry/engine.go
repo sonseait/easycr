@@ -26,6 +26,7 @@ type Engine struct {
 	Driver        driver.StorageDriver
 	mu            sync.RWMutex
 	streamTimeout time.Duration // zero uses the production limit
+	store         *bolt.DB
 }
 
 func NewEngine(ctx context.Context, dir string, service auth.Service) (*Engine, error) {
@@ -62,6 +63,7 @@ func NewEngine(ctx context.Context, dir string, service auth.Service) (*Engine, 
 		return nil, err
 	}
 	cfg.HTTP.Secret = secret
+	e.store = service.Store.DB
 	cfg.Log.AccessLog.Disabled = true
 	e.Handler = handlers.NewApp(ctx, cfg)
 	return e, nil
@@ -103,7 +105,7 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e.mu.Lock()
 		defer e.mu.Unlock()
 	}
-	e.Handler.ServeHTTP(w, r)
+	e.serveTracked(w, r)
 }
 
 func (e *Engine) Close() error {

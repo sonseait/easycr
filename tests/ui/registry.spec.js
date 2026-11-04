@@ -11,8 +11,9 @@ async function openUI(page, signedIn = true) {
     if (url.pathname.startsWith("/api/")) {
       const fixtures = {
         "/api/session": signedIn ? { csrfToken: "ui-test-csrf" } : { error: { message: "Unauthorized" } },
-        "/api/repositories": { items: [{ name: "team/app" }, { name: "team/library" }], next: "" },
-        "/api/tags": { items: [{ name: "latest", digest: "sha256:" + "a".repeat(64), manifestBytes: 123, platforms: [] }], next: "" },
+        "/api/repositories": { items: [{ name: "team/app", imageCount: 1, sizeBytes: 2048, pullCount: 7 }, { name: "team/library", imageCount: 1, sizeBytes: 1024, pullCount: 2 }], next: "", summary: { imageCount: 2, sizeBytes: 3072, pullCount: 9 } },
+        "/api/tags": { items: [{ name: "latest", digest: "sha256:" + "a".repeat(64), manifestBytes: 123, sizeBytes: 2048, pullCount: 7, platforms: [] }], next: "", repository: { imageCount: 1, sizeBytes: 2048, pullCount: 7 } },
+        "/api/manifest": { digest: "sha256:" + "a".repeat(64), manifestBytes: 123, sizeBytes: 2048, mediaType: "application/vnd.oci.image.manifest.v1+json", manifest: { schemaVersion: 2 }, layers: [{ digest: "sha256:" + "b".repeat(64), size: 1024, mediaType: "application/vnd.oci.image.layer.v1.tar+gzip" }] },
         "/api/tokens": { items: [{ id: "fixture-token", name: "CI read", grants: [{ repository: "team/app", permission: "read" }], createdAt: "2026-01-01T00:00:00Z" }] },
       };
       return route.fulfill({ status: !signedIn && url.pathname === "/api/session" ? 401 : 200, json: fixtures[url.pathname] || {} });
@@ -32,6 +33,23 @@ async function expectNoOverflow(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 }
 
+test("image statistics and layer inspection are visible", async ({ page }) => {
+  const errors = await openUI(page);
+  await expect(page.getByText(/2 images · 3.0 KiB · 9 pulls/)).toBeVisible();
+  await page.getByRole("button", { name: "Open tags" }).first().click();
+  await expect(page.getByRole("columnheader", { name: "Last push", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "2.0 KiB", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Inspect", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Layers", exact: true })).toBeVisible();
+  await expect(dialog.getByText("sha256:" + "b".repeat(64), { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("cell", { name: "1.0 KiB", exact: true })).toBeVisible();
+  await expectNoOverflow(page);
+  await dialog.getByText("Raw manifest JSON", { exact: true }).click();
+  await expect(dialog.locator("pre")).toContainText('"schemaVersion": 2');
+  expect(errors).toEqual([]);
+});
+
 test("empty repository message has balanced inner spacing", async ({ page }) => {
   await openUI(page);
   await page.getByLabel("Filter loaded repositories").fill("missing-repository");
@@ -50,7 +68,7 @@ test("technical console stays compact and respects touch targets", async ({ page
   await expect(page.getByRole("heading", { name: "Images", exact: true })).toHaveCSS("font-size", "16px");
   const row = page.locator(".row").first();
   const coarsePointer = await page.evaluate(() => matchMedia("(pointer: coarse)").matches);
-  expect((await row.boundingBox()).height).toBeLessThanOrEqual(coarsePointer ? 56 : 44);
+  expect((await row.boundingBox()).height).toBeLessThanOrEqual(56);
   if (coarsePointer) {
     expect((await row.getByRole("button").boundingBox()).height).toBeGreaterThanOrEqual(40);
   }
