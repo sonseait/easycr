@@ -23,9 +23,10 @@ type Activity struct {
 	LastPushedAt *time.Time `json:"lastPushedAt"`
 }
 type RepositoryInfo struct {
-	Name       string `json:"name"`
-	SizeBytes  int64  `json:"sizeBytes"`
-	ImageCount int    `json:"imageCount"`
+	Name       string   `json:"name"`
+	Tags       []string `json:"tags"`
+	SizeBytes  int64    `json:"sizeBytes"`
+	ImageCount int      `json:"imageCount"`
 	Activity
 }
 type RegistrySummary struct {
@@ -199,7 +200,7 @@ func (e *Engine) RepositoryStatistics(ctx context.Context, repo string) (Reposit
 	return e.repositoryStatistics(ctx, repo, make(map[digest.Digest]bool))
 }
 func (e *Engine) repositoryStatistics(ctx context.Context, repo string, seen map[digest.Digest]bool) (RepositoryInfo, error) {
-	out := RepositoryInfo{Name: repo}
+	out := RepositoryInfo{Name: repo, Tags: []string{}}
 	r, err := e.repository(ctx, repo)
 	if err != nil {
 		return out, err
@@ -214,6 +215,9 @@ func (e *Engine) repositoryStatistics(ctx context.Context, repo string, seen map
 	}
 	images := map[digest.Digest]bool{}
 	for _, tag := range tags {
+		if !strings.HasPrefix(strings.ToLower(tag), "sha256-") && !strings.HasPrefix(strings.ToLower(tag), "sha256:") {
+			out.Tags = append(out.Tags, tag)
+		}
 		desc, err := r.Tags(ctx).Get(ctx, tag)
 		if err != nil {
 			return out, err

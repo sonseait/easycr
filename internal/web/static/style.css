@@ -58,6 +58,8 @@ form { max-width: 440px; }
 .row > :first-child { min-width: 0; }
 .row p { margin: 2px 0; color: var(--muted); font-size: 11px; }
 small { font-size: 10px; }
+.repo-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; font-size: 10px; }
+.tag-badge { padding: 1px 5px; border: 1px solid light-dark(#c8dbf2, #3a5270); border-radius: 3px; color: var(--accent); background: light-dark(#edf4fd, #223247); overflow-wrap: anywhere; max-width: 100%; }
 .table-scroll { overflow: auto; margin-top: 14px; border: 1px solid var(--border); border-radius: 3px; }
 table { width: 100%; border-collapse: collapse; text-align: left; background: var(--surface); }
 th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }

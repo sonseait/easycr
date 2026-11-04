@@ -157,6 +157,17 @@
       for (const repo of filtered) {
         const row = el("div", null, { class: "row" });
         const info = el("div"); info.append(el("code", repo.name), statistics(repo));
+        const badges = el("div", null, { class: "repo-tags", "aria-label": `Tags for ${repo.name}` });
+        for (const tag of repo.tags || []) {
+          if (!/^sha256[:-]/i.test(tag)) {
+            const image = `${location.host}/${repo.name}:${tag}`;
+            const badge = button(tag, () => copy(image), "tag-badge");
+            badge.title = `Copy ${image}`;
+            badges.append(badge);
+          }
+        }
+        if (!badges.childElementCount) badges.append(el("span", "No named tags", { class: "muted" }));
+        info.append(badges);
         row.append(info, button("Open tags", () => repositoryView(repo.name)));
         list.append(row);
       }
@@ -184,6 +195,7 @@
       name.append(el("strong", tag.name), el("code", tag.digest, { class: "digest" }));
       const actions = el("td", null, { class: "actions" });
       actions.append(button("Inspect", () => inspect(repo, tag.name)), button("Copy pull", () => copy(`docker pull ${location.host}/${repo}:${tag.name}`)),
+        button("Copy image", () => copy(`${location.host}/${repo}:${tag.name}`)),
         button("Create tag", () => retag(repo, tag.digest)), button("Delete tag", async () => {
           if (!confirm(`Delete tag ${repo}:${tag.name}? Other tags remain. This digest may become unavailable after offline GC.`)) return;
           status("Deleting tag…"); await api(`/api/tag?repository=${encodeURIComponent(repo)}&tag=${encodeURIComponent(tag.name)}`, "DELETE");

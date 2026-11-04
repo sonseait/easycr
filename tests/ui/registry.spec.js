@@ -11,7 +11,7 @@ async function openUI(page, signedIn = true) {
     if (url.pathname.startsWith("/api/")) {
       const fixtures = {
         "/api/session": signedIn ? { csrfToken: "ui-test-csrf" } : { error: { message: "Unauthorized" } },
-        "/api/repositories": { items: [{ name: "team/app", imageCount: 1, sizeBytes: 2048, pullCount: 7 }, { name: "team/library", imageCount: 1, sizeBytes: 1024, pullCount: 2 }], next: "", summary: { imageCount: 2, sizeBytes: 3072, pullCount: 9 } },
+        "/api/repositories": { items: [{ name: "team/app", tags: ["latest", "v1.0", "sha256-deadbeef"], imageCount: 1, sizeBytes: 2048, pullCount: 7 }, { name: "team/library", tags: [], imageCount: 1, sizeBytes: 1024, pullCount: 2 }], next: "", summary: { imageCount: 2, sizeBytes: 3072, pullCount: 9 } },
         "/api/tags": { items: [{ name: "latest", digest: "sha256:" + "a".repeat(64), manifestBytes: 123, sizeBytes: 2048, pullCount: 7, platforms: [] }], next: "", repository: { imageCount: 1, sizeBytes: 2048, pullCount: 7 } },
         "/api/manifest": { digest: "sha256:" + "a".repeat(64), manifestBytes: 123, sizeBytes: 2048, mediaType: "application/vnd.oci.image.manifest.v1+json", manifest: { schemaVersion: 2 }, layers: [{ digest: "sha256:" + "b".repeat(64), size: 1024, mediaType: "application/vnd.oci.image.layer.v1.tar+gzip" }] },
         "/api/tokens": { items: [{ id: "fixture-token", name: "CI read", grants: [{ repository: "team/app", permission: "read" }], createdAt: "2026-01-01T00:00:00Z" }] },
@@ -32,6 +32,27 @@ async function openUI(page, signedIn = true) {
 async function expectNoOverflow(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 }
+
+test("repository list shows named tags without sha256 references", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+      writeText: async value => { window.copiedImage = value; },
+    } });
+  });
+  await openUI(page);
+  const tags = page.getByLabel("Tags for team/app", { exact: true });
+  await expect(tags.locator(".tag-badge")).toHaveText(["latest", "v1.0"]);
+  await expect(tags).not.toContainText("sha256");
+  await tags.getByRole("button", { name: "latest", exact: true }).click();
+  expect(await page.evaluate(() => window.copiedImage)).toBe("easycr.test/team/app:latest");
+  await expect(page.locator("#status")).toHaveText("Copied.");
+  await expect(page.getByLabel("Tags for team/library", { exact: true })).toHaveText("No named tags");
+  await page.getByRole("button", { name: "Open tags", exact: true }).first().click();
+  await page.getByRole("button", { name: "Copy image", exact: true }).click();
+  expect(await page.evaluate(() => window.copiedImage)).toBe("easycr.test/team/app:latest");
+  await expect(page.locator("#status")).toHaveText("Copied.");
+  await expectNoOverflow(page);
+});
 
 test("image statistics and layer inspection are visible", async ({ page }) => {
   const errors = await openUI(page);
@@ -68,9 +89,9 @@ test("technical console stays compact and respects touch targets", async ({ page
   await expect(page.getByRole("heading", { name: "Images", exact: true })).toHaveCSS("font-size", "16px");
   const row = page.locator(".row").first();
   const coarsePointer = await page.evaluate(() => matchMedia("(pointer: coarse)").matches);
-  expect((await row.boundingBox()).height).toBeLessThanOrEqual(56);
+  expect((await row.boundingBox()).height).toBeLessThanOrEqual(coarsePointer ? 100 : 84);
   if (coarsePointer) {
-    expect((await row.getByRole("button").boundingBox()).height).toBeGreaterThanOrEqual(40);
+    expect((await row.getByRole("button", { name: "Open tags", exact: true }).boundingBox()).height).toBeGreaterThanOrEqual(40);
   }
   await expect(page.getByRole("button", { name: "Images", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expectNoOverflow(page);
