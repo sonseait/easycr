@@ -1,18 +1,52 @@
 # EasyCR
 
-A private, single-admin OCI / Docker registry in one Go binary, with an embedded
-Images and Tokens UI, local filesystem storage, and offline garbage collection.
-No Node build, external database, or separate registry process is required to run
-or build the Go binary. The embedded UI uses native HTML controls and plain CSS.
+**Your private container registry, in one Go binary.**
 
-Registry HTTP requests currently have a one-hour maximum duration, including
-lock wait time; split larger uploads into resumable chunks. Image mutations are
-serialized globally, so a slow transfer can delay other repositories until it
-completes or reaches that limit. Upload signing state is persisted so resumable
-upload URLs remain valid after restart. This is not per-repository concurrency
-isolation or an idle-progress timeout.
+EasyCR is a self-hosted OCI / Docker registry with a built-in web console.
+Push and pull with Docker, browse your images, and manage repository access
+from one place. Designed for a single admin, with local filesystem storage.
 
-## Run locally
+- **Simple deployment** — one binary or Docker container; no external database,
+  separate registry process, or Node build required.
+- **Image management** — browse repositories and tags, inspect layers and manifests,
+  and track compressed sizes and pull activity.
+- **Scoped access** — create and revoke Docker tokens with read or write access
+  to exact repositories or the entire registry.
+- **Built-in console** — light and dark themes, with offline garbage collection
+  available through the CLI.
+
+[Quick start](#quick-start) · [Screenshots](#screenshots) ·
+[Docker](#docker-image) · [Push and pull](#push-and-pull) ·
+[Maintenance](#offline-maintenance-and-recovery) · [API](#api-and-security)
+
+## Screenshots
+
+Browse repositories, copy image references, and see storage and pull activity at a glance.
+
+![EasyCR Images console showing repositories, tags, compressed sizes and pull activity](docs/screenshots/images.png)
+
+<details>
+<summary>More screenshots: image inspection and scoped tokens</summary>
+
+### Inspect an image
+
+Review layer digests, compressed sizes, and media types, with raw manifest JSON
+and a Docker pull command in the same dialog. Shown in dark mode.
+
+![EasyCR image inspection dialog showing three layers and a Docker pull command in dark mode](docs/screenshots/inspect.png)
+
+### Create a scoped token
+
+Give CI pipelines and deployments access to the repositories they need.
+
+![EasyCR token creation dialog granting read access to two exact repositories](docs/screenshots/tokens.png)
+
+</details>
+
+*Screenshots use demo data. Regenerate with `node docs/screenshots/capture.cjs`
+after installing the [UI development](#ui-development) dependencies.*
+
+## Quick start
 
 Requires Go 1.26+ (tested toolchain: 1.26.5).
 
@@ -21,8 +55,12 @@ go build -trimpath -o bin/easycr ./cmd/easycr
 ./bin/easycr
 ```
 
-Open <http://localhost:5000>. UI mutations require an Origin matching the request
-Host and a session CSRF token. No password or token is supplied as a CLI argument.
+Open <http://localhost:5000> and sign in with the admin password printed in the
+first startup log (`bootstrap_admin_password password=...`). Then follow
+[Push and pull](#push-and-pull) to create a token and upload your first image.
+
+<details>
+<summary>First startup and password recovery</summary>
 
 The first `serve` startup creates and commits a bcrypt admin password hash,
 then prints one `bootstrap_admin_password password=...` event to stderr **before
@@ -32,6 +70,8 @@ password and does not print it again. If the event is lost, use offline reset.
 The UI never returns the admin password. Bootstrap or DB errors prevent listening.
 If binding fails after bootstrap, the password remains persisted: reuse the log
 or explicitly reset it rather than expecting another bootstrap event.
+
+</details>
 
 ## Configuration
 
@@ -133,8 +173,8 @@ allow long uploads, and preserve the Host header. EasyCR does not trust
 X-Forwarded-For for login rate limits. The application serves HTTP internally;
 Never publish this plaintext backend directly to the Internet. A validated HTTPS
 Origin (or direct TLS) causes the session cookie to use Secure; forwarded headers
-are not trusted. The proxy must preserve the original Host and Origin headers. No SSO, scanning, replication, object
-storage, multi-replica operation, automatic retention, or NFS support is included.
+are not trusted. The proxy must preserve the original Host and Origin headers.
+See [Deployment limits](#deployment-limits) for supported scope and transfer limits.
 
 ## Push and pull
 
@@ -200,6 +240,19 @@ pinned Distribution public remover removes a directory tree.
 
 Untagged manifests may still be pulled by digest **before** GC. Availability after
 GC is not guaranteed. Deletion does not immediately reclaim physical storage.
+
+## Deployment limits
+
+EasyCR supports a single admin and one instance per local data directory.
+No SSO, scanning, replication, object storage, multi-replica operation,
+automatic retention, or NFS support is included.
+
+Registry HTTP requests currently have a one-hour maximum duration, including
+lock wait time; split larger uploads into resumable chunks. Image mutations are
+serialized globally, so a slow transfer can delay other repositories until it
+completes or reaches that limit. Upload signing state is persisted so resumable
+upload URLs remain valid after restart. This is not per-repository concurrency
+isolation or an idle-progress timeout.
 
 ## Offline maintenance and recovery
 
