@@ -1,0 +1,7 @@
+.git
+.hermes
+bin
+data
+.env
+**/.env
+*.bundle

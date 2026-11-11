@@ -1,0 +1,274 @@
+openapi: 3.1.0
+info:
+  title: EasyCR Admin API
+  version: 1.0.0
+  description: |
+    Single-admin registry management. /v2/ is the Docker/OCI Distribution protocol,
+    separately authenticated with Basic username token and an opaque credential.
+    Admin mutations require exact configured Origin and X-CSRF-Token. Login also
+    requires Origin. All JSON bodies reject unknown fields and are limited to 64 KiB.
+    Errors are {error:{code,message}}. No password is returned by this API.
+servers:
+  - url: http://localhost:5000
+security:
+  - session: []
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: easycr_session
+  parameters:
+    repository:
+      name: repository
+      in: query
+      required: true
+      schema: {type: string, example: team/app}
+    tag:
+      name: tag
+      in: query
+      required: true
+      schema: {type: string, example: v1}
+    n:
+      name: n
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+    last:
+      name: last
+      in: query
+      schema: {type: string}
+    origin:
+      name: Origin
+      in: header
+      required: true
+      schema: {type: string, example: 'http://localhost:5000'}
+    csrf:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema: {type: string}
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string}
+            message: {type: string}
+    Grant:
+      type: object
+      additionalProperties: false
+      required: [repository, permission]
+      properties:
+        repository: {type: string, description: 'Exact lowercase repository name or *'}
+        permission: {type: string, enum: [read, write]}
+    Token:
+      type: object
+      required: [id, name, grants, createdAt]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        grants: {type: array, items: {$ref: '#/components/schemas/Grant'}}
+        createdAt: {type: string, format: date-time}
+    Manifest:
+      type: object
+      required: [name, digest, mediaType, manifestBytes, platforms]
+      properties:
+        name: {type: string}
+        digest: {type: string}
+        mediaType: {type: string}
+        manifestBytes: {type: integer, description: 'Manifest JSON bytes; not image or reclaimable size'}
+        sizeBytes: {type: integer, format: int64, description: 'Unique stored compressed blobs and manifests reachable from this image; not reclaimable disk space'}
+        pullCount: {type: integer, description: 'Successful registry manifest GETs since tracking began; excludes HEAD and admin inspection'}
+        lastPulledAt: {type: string, format: date-time, nullable: true}
+        lastPushedAt: {type: string, format: date-time, nullable: true}
+        layers: {type: array, nullable: true, items: {type: object}, description: 'Ordered OCI layer descriptors: digest, size and mediaType'}
+        children: {type: array, nullable: true, items: {type: object}, description: 'Index child descriptors; inspect each digest for platform layers'}
+        platforms:
+          type: array
+          items:
+            type: object
+            properties:
+              architecture: {type: string}
+              os: {type: string}
+              variant: {type: string}
+        manifest: {type: object, description: 'Present only on GET /api/manifest; original JSON and media type preserved'}
+  responses:
+    Error:
+      description: |
+        400 invalid input/JSON, 401 invalid or expired session, 403 Origin/CSRF,
+        404 missing resource, 409 conflict, 413 oversized JSON, 500 storage/internal.
+        Login can return 429 with Retry-After seconds. Internal details are withheld.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+paths:
+  /healthz:
+    get:
+      security: []
+      responses:
+        '200':
+          description: Public liveness only
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {status: {const: ok}}
+  /api/login:
+    post:
+      security: []
+      parameters: [{$ref: '#/components/parameters/origin'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [password]
+              properties: {password: {type: string, format: password}}
+      responses:
+        '200':
+          description: Sets HttpOnly SameSite=Strict session cookie; Secure for HTTPS public URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {csrfToken: {type: string}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/session:
+    get:
+      responses:
+        '200':
+          description: Valid session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {authenticated: {const: true}, csrfToken: {type: string}}
+        default: {$ref: '#/components/responses/Error'}
+  /api/logout:
+    post:
+      parameters: [{$ref: '#/components/parameters/origin'}, {$ref: '#/components/parameters/csrf'}]
+      responses:
+        '204': {description: Session revoked and cookie expired}
+        default: {$ref: '#/components/responses/Error'}
+  /api/tokens:
+    get:
+      responses:
+        '200':
+          description: Token metadata only; no secret or hash
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Token'}}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      parameters: [{$ref: '#/components/parameters/origin'}, {$ref: '#/components/parameters/csrf'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, grants]
+              properties:
+                name: {type: string, minLength: 1, maxLength: 200}
+                grants: {type: array, minItems: 1, maxItems: 100, items: {$ref: '#/components/schemas/Grant'}}
+      responses:
+        '201':
+          description: Save secret now; it cannot be retrieved again
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: {$ref: '#/components/schemas/Token'}
+                  secret: {type: string, description: 'ecr_<32 hex ID>.<43 base64url secret>'}
+        default: {$ref: '#/components/responses/Error'}
+  /api/tokens/{id}:
+    delete:
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+        - {$ref: '#/components/parameters/origin'}
+        - {$ref: '#/components/parameters/csrf'}
+      responses:
+        '204': {description: Revoked; next request denied}
+        default: {$ref: '#/components/responses/Error'}
+  /api/repositories:
+    get:
+      parameters: [{$ref: '#/components/parameters/n'}, {$ref: '#/components/parameters/last'}]
+      responses:
+        '200':
+          description: Sorted page; next is last item cursor or empty string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: {type: object, properties: {name: {type: string}}}
+                  next: {type: string}
+        default: {$ref: '#/components/responses/Error'}
+  /api/tags:
+    get:
+      parameters: [{$ref: '#/components/parameters/repository'}, {$ref: '#/components/parameters/n'}, {$ref: '#/components/parameters/last'}]
+      responses:
+        '200':
+          description: Sorted tags; existing repository with no tags returns empty items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Manifest'}}
+                  next: {type: string}
+        default: {$ref: '#/components/responses/Error'}
+  /api/manifest:
+    get:
+      parameters:
+        - {$ref: '#/components/parameters/repository'}
+        - {name: reference, in: query, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: Tag or digest metadata and original manifest JSON
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Manifest'}
+        default: {$ref: '#/components/responses/Error'}
+  /api/tag:
+    parameters: [{$ref: '#/components/parameters/repository'}, {$ref: '#/components/parameters/tag'}, {$ref: '#/components/parameters/origin'}, {$ref: '#/components/parameters/csrf'}]
+    put:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [sourceDigest]
+              properties:
+                sourceDigest: {type: string, description: Existing manifest in the same repository}
+                overwrite: {type: boolean, default: false}
+      responses:
+        '201': {description: New tag created}
+        '200': {description: Existing tag explicitly overwritten}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      responses:
+        '204': {description: Only this tag is removed; other aliases and manifest remain until GC}
+        default: {$ref: '#/components/responses/Error'}
+  /api/repository:
+    delete:
+      parameters: [{$ref: '#/components/parameters/repository'}, {$ref: '#/components/parameters/origin'}, {$ref: '#/components/parameters/csrf'}]
+      responses:
+        '204': {description: Repository references removed; shared blobs preserved; offline GC reclaims orphans}
+        '409': {description: Remove nested repositories first}
+        default: {$ref: '#/components/responses/Error'}
